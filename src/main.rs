@@ -94,7 +94,7 @@ fn parse_fpac(input: PathBuf, output_path: PathBuf, overwrite: bool) -> AResult<
 
     let (meta, named_files) = match parser::parse(&file_data) {
         Ok((_, o)) => o,
-        Err(e) => return Err(anyhow!("Parsing file failed: `{}`", e.to_string()))
+        Err(_) => return Err(anyhow!("Could not parse file"))
     };
 
     println!(
