@@ -1,39 +1,10 @@
-use std::io::SeekFrom;
+use crate::utils;
 
-use binread::{BinRead, FilePtr32, NullString};
 use byteorder::{WriteBytesExt, LE};
 use miniserde::{Deserialize, Serialize};
 
-use crate::utils;
 pub const HEADER_SIZE: usize = 0x20;
 pub const HEADER_MAGIC: &[u8; 4] = b"FPAC";
-
-// Type for parsing an FPAC file into a usable struct
-#[derive(Debug, BinRead)]
-#[br(little, magic = b"FPAC", assert(file_count != 0))]
-pub struct ParsedPac {
-    data_start: u32,
-    total_size: u32,
-    file_count: u32,
-    pub unknown: u32,
-    #[br(pad_after = 0x8)]
-    pub string_size: u32,
-    #[br(count = file_count, args(string_size, data_start))]
-    pub file_entries: Vec<ParsedPacEntry>,
-}
-
-#[derive(Debug, BinRead)]
-#[br(import(string_size: u32, data_start: u32))]
-pub struct ParsedPacEntry {
-    #[br(pad_size_to = string_size)]
-    pub file_name: NullString,
-    pub file_id: u32,
-    // Use SeekFrom to enable reading the file size before the offset, to make FilePtr32<Vec<u8>> usable
-    #[br(seek_before = SeekFrom::Current(4))]
-    pub file_size: u32,
-    #[br(seek_before = SeekFrom::Current(-8), pad_after = 4, align_after = 0x10, count = file_size, offset = data_start as u64)]
-    pub file: FilePtr32<Vec<u8>>,
-}
 
 // Type used for storing data about the FPAC in a meta.json to be serialized/deserialized
 #[derive(Debug, Serialize, Deserialize)]
@@ -60,7 +31,7 @@ impl PacMeta {
         let max = self.file_entries.iter().map(|x| x.file_name.len()).max();
 
         if let Some(max_unaligned) = max {
-            let string_size = utils::pad_to_nearest(max_unaligned, 0x4);
+            let string_size = utils::pad_to_nearest_with_excess(max_unaligned, 0x4);
 
             return Some(string_size);
         }
@@ -96,7 +67,7 @@ impl PacMetaEntry {
             .write_u32::<LE>(file_size as u32)
             .expect(VEC_WRITE_ERR);
 
-        let leftover_nulls = utils::needed_to_align(entry.len(), 0x10);
+        let leftover_nulls = utils::needed_to_align_with_excess(entry.len(), 0x10);
 
         for _ in 0..leftover_nulls {
             entry.push(0x00);

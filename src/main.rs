@@ -1,16 +1,16 @@
 mod utils;
 mod pac;
+mod parser;
 
 use pac::PacMeta;
 
 use std::io::{BufWriter, prelude::*};
 use std::path::PathBuf;
 use std::{collections::HashMap, fs};
-use std::{fs::File, io::BufReader};
+use std::{fs::File, io::Write};
 
 use anyhow::anyhow;
 use anyhow::Result as AResult;
-use binread::BinReaderExt;
 use byteorder::{WriteBytesExt, LE};
 use miniserde::json;
 use structopt::StructOpt;
@@ -46,7 +46,7 @@ enum Run {
 
 fn main() -> AResult<()> {
     if let Err(e) = run() {
-        println!("ERROR: {}", e);
+        println!("ERROR: {}", e.root_cause());
     }
 
     Ok(())
@@ -87,33 +87,35 @@ fn parse_fpac(input: PathBuf, output_path: PathBuf, overwrite: bool) -> AResult<
     }
 
     println!("Reading file...");
-    let in_file = File::open(&input)?;
-    let mut buffered_file = BufReader::new(in_file);
-    let parsed_fpac: pac::ParsedPac = buffered_file.read_le()?;
+    let mut in_file = File::open(&input)?;
+    
+    let mut file_data = Vec::new();
+    in_file.read_to_end(&mut file_data)?;
+
+    let (meta, named_files) = match parser::parse(&file_data) {
+        Ok((_, o)) => o,
+        Err(e) => return Err(anyhow!("Parsing file failed: `{}`", e.to_string()))
+    };
 
     println!(
         "Parsed FPAC `{}`\nWriting {} files...",
         &input.to_string_lossy(),
-        parsed_fpac.file_entries.len()
+        meta.file_entries.len()
     );
 
     fs::create_dir_all(&output_path)?;
 
-    let mut fpac_metadata = pac::PacMeta::new(parsed_fpac.unknown);
-
-    for file in parsed_fpac.file_entries {
-        let file_name = file.file_name.to_string();
+    for file in named_files {
+        let file_name = file.name;
 
         let mut file_path = output_path.clone();
         file_path.push(&file_name);
 
         let mut out_file = File::create(file_path)?;
-        out_file.write_all(&file.file)?;
-
-        fpac_metadata.add_file_entry(file_name, file.file_id);
+        out_file.write_all(&file.contents)?;
     }
 
-    let serialized = json::to_string(&fpac_metadata);
+    let serialized = json::to_string(&meta);
     let mut meta_file = File::create(output_path.join(META_FILENAME))?;
     meta_file.write(serialized.as_bytes())?;
 
@@ -168,9 +170,9 @@ fn rebuild_fpac(input: PathBuf, output: PathBuf, overwrite: bool) -> AResult<()>
 
         let size = data.len() - offset;
 
-        let leftover = utils::needed_to_align(dbg!(size), 0x10);
+        let leftover = utils::needed_to_align(size, 0x10);
 
-        for _ in 0..dbg!(leftover) {
+        for _ in 0..leftover {
             data.write_u8(0x0)?;
         }
 
