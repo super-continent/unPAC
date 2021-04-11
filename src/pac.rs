@@ -69,9 +69,7 @@ impl PacMetaEntry {
 
         let leftover_nulls = utils::needed_to_align_with_excess(entry.len(), 0x10);
 
-        for _ in 0..leftover_nulls {
-            entry.push(0x00);
-        }
+        entry.resize(leftover_nulls, 0x00);
 
         entry
     }

@@ -1,10 +1,11 @@
-mod utils;
+mod error;
 mod pac;
 mod parser;
+mod utils;
 
 use pac::PacMeta;
 
-use std::io::{BufWriter, prelude::*};
+use std::io::{prelude::*, BufWriter};
 use std::path::PathBuf;
 use std::{collections::HashMap, fs};
 use std::{fs::File, io::Write};
@@ -46,7 +47,7 @@ enum Run {
 
 fn main() -> AResult<()> {
     if let Err(e) = run() {
-        println!("ERROR: {}", e.root_cause());
+        println!("ERROR: {}", e.to_string());
     }
 
     Ok(())
@@ -88,13 +89,14 @@ fn parse_fpac(input: PathBuf, output_path: PathBuf, overwrite: bool) -> AResult<
 
     println!("Reading file...");
     let mut in_file = File::open(&input)?;
-    
+
     let mut file_data = Vec::new();
     in_file.read_to_end(&mut file_data)?;
 
     let (meta, named_files) = match parser::parse(&file_data) {
-        Ok((_, o)) => o,
-        Err(_) => return Err(anyhow!("Could not parse file"))
+        Ok(o) => o,
+        Err(nom::Err::Error(e) | nom::Err::Failure(e)) => return Err(e.into()),
+        Err(e) => return Err(e.into()),
     };
 
     println!(
@@ -117,7 +119,7 @@ fn parse_fpac(input: PathBuf, output_path: PathBuf, overwrite: bool) -> AResult<
 
     let serialized = json::to_string(&meta);
     let mut meta_file = File::create(output_path.join(META_FILENAME))?;
-    meta_file.write(serialized.as_bytes())?;
+    meta_file.write_all(serialized.as_bytes())?;
 
     Ok(())
 }
@@ -196,7 +198,7 @@ fn rebuild_fpac(input: PathBuf, output: PathBuf, overwrite: bool) -> AResult<()>
     // 18..20 null padding
     // 20...N file entries
 
-    fpac.write(pac::HEADER_MAGIC)?;
+    fpac.write_all(pac::HEADER_MAGIC)?;
     fpac.write_u32::<LE>(meta_data_start as u32)?;
     fpac.write_u32::<LE>(total_size as u32)?;
     fpac.write_u32::<LE>(meta_entry_count as u32)?;
@@ -206,12 +208,12 @@ fn rebuild_fpac(input: PathBuf, output: PathBuf, overwrite: bool) -> AResult<()>
 
     for entry in &meta.file_entries {
         if let Some((offset, size)) = id_offsets_sizes.get(&entry.file_id) {
-            let mut entry_bytes = entry.to_entry_bytes(*offset, *size, meta_string_size);
-            fpac.write(&mut entry_bytes)?;
+            let entry_bytes = entry.to_entry_bytes(*offset, *size, meta_string_size);
+            fpac.write_all(&entry_bytes)?;
         }
     }
 
-    fpac.write_all(&mut data)?;
+    fpac.write_all(&data)?;
 
     Ok(())
 }

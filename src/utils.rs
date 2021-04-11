@@ -20,11 +20,10 @@ pub fn pad_to_nearest(size: usize, step: usize) -> usize {
     let rem = size % step;
 
     if rem == 0 {
-        return 0;
+        0
     } else {
         size + (step - rem)
     }
-
 }
 
 #[inline]
@@ -38,7 +37,7 @@ pub fn pad_to_nearest_with_excess(size: usize, step: usize) -> usize {
 pub fn needed_to_align(size: usize, step: usize) -> usize {
     let rem = size % step;
     if rem == 0 {
-        return 0
+        0
     } else {
         step - rem
     }

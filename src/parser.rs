@@ -1,13 +1,18 @@
 use std::str;
 
-use nom::{IResult, bytes::complete::{take, take_until}, combinator, number::complete::le_u32};
 use nom::combinator::map_res;
+use nom::{
+    bytes::complete::{take, take_until},
+    combinator,
+    number::complete::le_u32,
+    IResult,
+};
 use utils::needed_to_align;
 
-use crate::{pac::PacMeta, utils};
+use crate::{error::PacError, pac::PacMeta, utils};
 
-pub fn parse(i: &[u8]) -> IResult<&[u8], (PacMeta, Vec<NamedFile>)> {
-    let original_input = i.clone();
+pub fn parse(i: &[u8]) -> Result<(PacMeta, Vec<NamedFile>), nom::Err<PacError>> {
+    let original_input = <&[u8]>::clone(&i);
     let (i, _) = nom::bytes::complete::tag(b"FPAC")(i)?;
 
     let (i, data_start) = le_u32(i)?;
@@ -15,15 +20,16 @@ pub fn parse(i: &[u8]) -> IResult<&[u8], (PacMeta, Vec<NamedFile>)> {
     let (i, file_count) = combinator::verify(le_u32, |x| *x > 0)(i)?;
     let (i, unknown) = le_u32(i)?;
     let (i, string_size) = le_u32(i)?;
-    
+
     // padding
     let (i, _) = take(8u8)(i)?;
 
+    let (_, entries): (_, Vec<FileEntry>) =
+        nom::multi::count(|i| parse_entry(i, string_size), file_count as usize)(i)
+            .map_err(|_e| nom::Err::Error(PacError::FileEntry))?;
 
-    let (i, entries): (_, Vec<FileEntry>) = nom::multi::count(|i| parse_entry(i, string_size), file_count as usize)(i)?;
-    
     let mut data = &original_input[data_start as usize..];
-    
+
     let mut pac_meta = PacMeta::new(unknown);
     let mut file_contents = Vec::new();
     for entry in entries {
@@ -35,14 +41,13 @@ pub fn parse(i: &[u8]) -> IResult<&[u8], (PacMeta, Vec<NamedFile>)> {
 
         pac_meta.add_file_entry(entry_name.clone(), entry.id);
 
-        file_contents.push(NamedFile{
+        file_contents.push(NamedFile {
             name: entry_name,
-            contents: Vec::from(file_data)
+            contents: Vec::from(file_data),
         })
     }
 
-
-    Ok((i, (pac_meta, file_contents)))
+    Ok((pac_meta, file_contents))
 }
 
 fn parse_entry(i: &[u8], string_size: u32) -> IResult<&[u8], FileEntry> {
@@ -58,9 +63,9 @@ fn parse_entry(i: &[u8], string_size: u32) -> IResult<&[u8], FileEntry> {
         name: file_name.to_string(),
         id,
         offset,
-        size
+        size,
     };
-    Ok((i,file_entry))
+    Ok((i, file_entry))
 }
 
 fn take_str_of_size(i: &[u8], size: u32) -> IResult<&[u8], &str> {
@@ -80,5 +85,5 @@ struct FileEntry {
 
 pub struct NamedFile {
     pub name: String,
-    pub contents: Vec<u8>
+    pub contents: Vec<u8>,
 }
