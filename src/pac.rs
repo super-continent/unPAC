@@ -67,7 +67,7 @@ impl PacMetaEntry {
             .write_u32::<LE>(file_size as u32)
             .expect(VEC_WRITE_ERR);
 
-        let leftover_nulls = utils::needed_to_align_with_excess(entry.len(), 0x10);
+        let leftover_nulls = utils::pad_to_nearest_with_excess(entry.len(), 0x10);
 
         entry.resize(leftover_nulls, 0x00);
 
