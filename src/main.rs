@@ -211,7 +211,7 @@ fn rebuild_fpac(input: PathBuf, output: PathBuf, overwrite: bool) -> AResult<()>
 
     for entry in &meta.file_entries {
         if let Some((offset, size)) = id_offsets_sizes.get(&entry.file_id) {
-            let entry_bytes = dbg!(entry.to_entry_bytes(*offset, *size, dbg!(meta_string_size)));
+            let entry_bytes = entry.to_entry_bytes(*offset, *size, meta_string_size);
             fpac.write_all(&entry_bytes)?;
         }
     }
