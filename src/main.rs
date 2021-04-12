@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use std::{collections::HashMap, fs};
 use std::{fs::File, io::Write};
 
+use rayon::prelude::*;
 use anyhow::anyhow;
 use anyhow::Result as AResult;
 use byteorder::{WriteBytesExt, LE};
@@ -107,15 +108,17 @@ fn parse_fpac(input: PathBuf, output_path: PathBuf, overwrite: bool) -> AResult<
 
     fs::create_dir_all(&output_path)?;
 
-    for file in named_files {
-        let file_name = file.name;
+    named_files.par_iter().try_for_each(|file| -> AResult<()> {
+        let file_name = &file.name;
 
         let mut file_path = output_path.clone();
         file_path.push(&file_name);
 
         let mut out_file = File::create(file_path)?;
         out_file.write_all(&file.contents)?;
-    }
+
+        Ok(())
+    })?;
 
     let serialized = json::to_string(&meta);
     let mut meta_file = File::create(output_path.join(META_FILENAME))?;
@@ -208,7 +211,7 @@ fn rebuild_fpac(input: PathBuf, output: PathBuf, overwrite: bool) -> AResult<()>
 
     for entry in &meta.file_entries {
         if let Some((offset, size)) = id_offsets_sizes.get(&entry.file_id) {
-            let entry_bytes = entry.to_entry_bytes(*offset, *size, meta_string_size);
+            let entry_bytes = dbg!(entry.to_entry_bytes(*offset, *size, dbg!(meta_string_size)));
             fpac.write_all(&entry_bytes)?;
         }
     }
