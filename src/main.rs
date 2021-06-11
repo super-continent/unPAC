@@ -1,6 +1,5 @@
 mod error;
 mod pac;
-mod parser;
 mod utils;
 
 use pac::PacMeta;
@@ -23,7 +22,7 @@ const META_FILENAME: &str = "meta.json";
 #[structopt(name = "unPAC", author = "Made by Pangaea")]
 enum Run {
     /// Parse a .pac file into its contained parts
-    Parse {
+    ParsePac {
         /// Path to the input .pac file
         #[structopt(parse(from_os_str))]
         input: PathBuf,
@@ -34,7 +33,7 @@ enum Run {
         overwrite: bool,
     },
     /// Rebuild a parsed .pac file into its original format
-    Rebuild {
+    RebuildPac {
         /// Path to the input folder containing the parsed .pac files and a meta.json
         #[structopt(parse(from_os_str))]
         input: PathBuf,
@@ -46,24 +45,22 @@ enum Run {
     },
 }
 
-fn main() -> AResult<()> {
+fn main() {
     if let Err(e) = run() {
         println!("ERROR: {}", e.to_string());
     }
-
-    Ok(())
 }
 
 fn run() -> AResult<()> {
     let opt = Run::from_args();
 
     match opt {
-        Run::Parse {
+        Run::ParsePac {
             input,
             output,
             overwrite,
         } => parse_fpac(input, output, overwrite)?,
-        Run::Rebuild {
+        Run::RebuildPac {
             input,
             output,
             overwrite,
@@ -94,7 +91,7 @@ fn parse_fpac(input: PathBuf, output_path: PathBuf, overwrite: bool) -> AResult<
     let mut file_data = Vec::new();
     in_file.read_to_end(&mut file_data)?;
 
-    let (meta, named_files) = match parser::parse(&file_data) {
+    let (meta, named_files) = match pac::parse(&file_data) {
         Ok(o) => o,
         Err(nom::Err::Error(e) | nom::Err::Failure(e)) => return Err(e.into()),
         Err(e) => return Err(e.into()),
