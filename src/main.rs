@@ -43,6 +43,14 @@ enum Run {
         #[structopt(short, long)]
         overwrite: bool,
     },
+    /// Parse a .hip file and save it as a PNG
+    ParseHip {
+
+    },
+    /// Rebuild a PNG file into a .hip
+    RebuildHip {
+
+    }
 }
 
 fn main() {
@@ -59,15 +67,14 @@ fn run() -> AResult<()> {
             input,
             output,
             overwrite,
-        } => parse_fpac(input, output, overwrite)?,
+        } => parse_fpac(input, output, overwrite),
         Run::RebuildPac {
             input,
             output,
             overwrite,
-        } => rebuild_fpac(input, output, overwrite)?,
+        } => rebuild_fpac(input, output, overwrite),
+        _ => Ok(()),
     }
-
-    Ok(())
 }
 
 fn parse_fpac(input: PathBuf, output_path: PathBuf, overwrite: bool) -> AResult<()> {
