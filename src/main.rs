@@ -31,6 +31,8 @@ enum Run {
         /// Specify the program should overwrite the output path if it already exists
         #[structopt(short, long)]
         overwrite: bool,
+        #[structopt(long)]
+        old_pac: bool,
     },
     /// Rebuild a parsed .pac file into its original format
     RebuildPac {
@@ -67,7 +69,8 @@ fn run() -> AResult<()> {
             input,
             output,
             overwrite,
-        } => parse_fpac(input, output, overwrite),
+            old_pac,
+        } => parse_fpac(input, output, overwrite, old_pac),
         Run::RebuildPac {
             input,
             output,
@@ -77,7 +80,7 @@ fn run() -> AResult<()> {
     }
 }
 
-fn parse_fpac(input: PathBuf, output_path: PathBuf, overwrite: bool) -> AResult<()> {
+fn parse_fpac(input: PathBuf, output_path: PathBuf, overwrite: bool, old_pac: bool) -> AResult<()> {
     if output_path.exists() && !overwrite {
         return Err(anyhow!(
             "Output `{}` already exists! You can overwrite with -o",
@@ -98,7 +101,7 @@ fn parse_fpac(input: PathBuf, output_path: PathBuf, overwrite: bool) -> AResult<
     let mut file_data = Vec::new();
     in_file.read_to_end(&mut file_data)?;
 
-    let pac = match pac::parse(&file_data) {
+    let pac = match pac::parse(&file_data, old_pac) {
         Ok(o) => o,
         Err(nom::Err::Error(e) | nom::Err::Failure(e)) => return Err(e.into()),
         Err(e) => return Err(e.into()),
