@@ -11,7 +11,9 @@ use utils::needed_to_align;
 
 use crate::{error::PacError, pac::PacMeta, utils};
 
-pub fn parse(i: &[u8]) -> Result<(PacMeta, Vec<NamedFile>), nom::Err<PacError>> {
+use super::ParsedPac;
+
+pub fn parse(i: &[u8]) -> Result<ParsedPac, nom::Err<PacError>> {
     let original_input = <&[u8]>::clone(&i);
     let (i, _) = nom::bytes::complete::tag(b"FPAC")(i)?;
 
@@ -47,7 +49,11 @@ pub fn parse(i: &[u8]) -> Result<(PacMeta, Vec<NamedFile>), nom::Err<PacError>> 
         })
     }
 
-    Ok((pac_meta, file_contents))
+    Ok(
+        ParsedPac {
+            meta: pac_meta,
+            files: file_contents
+        })
 }
 
 fn parse_entry(i: &[u8], string_size: u32) -> IResult<&[u8], FileEntry> {
@@ -83,6 +89,7 @@ struct FileEntry {
     size: u32,
 }
 
+#[derive(Debug)]
 pub struct NamedFile {
     pub name: String,
     pub contents: Vec<u8>,

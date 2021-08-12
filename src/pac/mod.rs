@@ -9,6 +9,12 @@ use miniserde::{Deserialize, Serialize};
 pub const HEADER_SIZE: usize = 0x20;
 pub const HEADER_MAGIC: &[u8; 4] = b"FPAC";
 
+#[derive(Debug)]
+pub struct ParsedPac {
+    pub meta: PacMeta,
+    pub files: Vec<NamedFile>
+}
+
 // Type used for storing data about the FPAC in a meta.json to be serialized/deserialized
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PacMeta {

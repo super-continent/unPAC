@@ -98,7 +98,7 @@ fn parse_fpac(input: PathBuf, output_path: PathBuf, overwrite: bool) -> AResult<
     let mut file_data = Vec::new();
     in_file.read_to_end(&mut file_data)?;
 
-    let (meta, named_files) = match pac::parse(&file_data) {
+    let pac = match pac::parse(&file_data) {
         Ok(o) => o,
         Err(nom::Err::Error(e) | nom::Err::Failure(e)) => return Err(e.into()),
         Err(e) => return Err(e.into()),
@@ -107,12 +107,12 @@ fn parse_fpac(input: PathBuf, output_path: PathBuf, overwrite: bool) -> AResult<
     println!(
         "Parsed FPAC `{}`\nWriting {} files...",
         &input.to_string_lossy(),
-        meta.file_entries.len()
+        pac.meta.file_entries.len()
     );
 
     fs::create_dir_all(&output_path)?;
 
-    named_files.par_iter().try_for_each(|file| -> AResult<()> {
+    pac.files.par_iter().try_for_each(|file| -> AResult<()> {
         let file_name = &file.name;
 
         let mut file_path = output_path.clone();
@@ -124,7 +124,7 @@ fn parse_fpac(input: PathBuf, output_path: PathBuf, overwrite: bool) -> AResult<
         Ok(())
     })?;
 
-    let serialized = json::to_string(&meta);
+    let serialized = json::to_string(&pac.meta);
     let mut meta_file = File::create(output_path.join(META_FILENAME))?;
     meta_file.write_all(serialized.as_bytes())?;
 
