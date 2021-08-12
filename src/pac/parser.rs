@@ -22,7 +22,7 @@ pub fn parse(i: &[u8], old_pac: bool) -> Result<ParsedPac, nom::Err<PacError>> {
     let (i, file_count) = combinator::verify(le_u32, |x| *x > 0)(i)?;
     let (i, unknown) = le_u32(i)?;
     let (i, string_size) = le_u32(i)?;
-    println!("meta done, string size: {}", string_size);
+    //println!("meta done, string size: {}", string_size);
 
     // padding
     let (i, _) = take(8u8)(i)?;
@@ -36,7 +36,7 @@ pub fn parse(i: &[u8], old_pac: bool) -> Result<ParsedPac, nom::Err<PacError>> {
     let mut pac_meta = PacMeta::new(unknown);
     let mut file_contents = Vec::new();
     for entry in entries {
-        println!("taking file `{}` data of size {}", entry.name.clone(), entry.size);
+        //println!("taking file `{}` data of size {}", entry.name.clone(), entry.size);
         let (new_data_slice, file_data) = take(entry.size)(data)?;
 
         let entry_size = if old_pac {
@@ -66,7 +66,7 @@ pub fn parse(i: &[u8], old_pac: bool) -> Result<ParsedPac, nom::Err<PacError>> {
 
 fn parse_entry(i: &[u8], string_size: u32) -> IResult<&[u8], FileEntry> {
     let (i, file_name) = take_str_of_size(i, string_size)?;
-    println!("parsing entry: {}", file_name.clone());
+    //println!("parsing entry: {}", file_name.clone());
     let (i, id) = le_u32(i)?;
     let (i, offset) = le_u32(i)?;
     let (i, size) = le_u32(i)?;
