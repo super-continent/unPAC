@@ -1,6 +1,6 @@
+use std::fs::File;
 use std::io::{prelude::*, BufReader};
 use std::path::PathBuf;
-use std::{fs::File, io::Write};
 
 use anyhow::Result as AResult;
 use arcsys::bbcf::hip::{BBCFHip, BBCFHipImage};
