@@ -1,58 +1,22 @@
-mod error;
-mod pac;
-mod utils;
-
-use pac::PacMeta;
-
-use std::io::{prelude::*, BufWriter};
+use std::io::{prelude::*, BufReader};
 use std::path::PathBuf;
-use std::{collections::HashMap, fs};
 use std::{fs::File, io::Write};
 
-use rayon::prelude::*;
-use anyhow::anyhow;
 use anyhow::Result as AResult;
-use byteorder::{WriteBytesExt, LE};
-use miniserde::json;
+use arcsys::bbcf::hip::{BBCFHip, BBCFHipImage};
+use arcsys::bbcf::hpl::BBCFHpl;
+use arcsys::bbcf::pac::{BBCFPac, BBCFPacEntry};
+use arcsys::{IndexedImage, RGBAColor};
+use image::{DynamicImage, GenericImageView, GrayImage, RgbaImage};
+use rayon::prelude::*;
 use structopt::StructOpt;
 
 const META_FILENAME: &str = "meta.json";
 
 #[derive(StructOpt, Debug)]
-#[structopt(name = "unPAC", author = "Made by Pangaea")]
-enum Run {
-    /// Parse a .pac file into its contained parts
-    ParsePac {
-        /// Path to the input .pac file
-        #[structopt(parse(from_os_str))]
-        input: PathBuf,
-        #[structopt(parse(from_os_str))]
-        output: PathBuf,
-        /// Specify the program should overwrite the output path if it already exists
-        #[structopt(short, long)]
-        overwrite: bool,
-        #[structopt(long)]
-        old_pac: bool,
-    },
-    /// Rebuild a parsed .pac file into its original format
-    RebuildPac {
-        /// Path to the input folder containing the parsed .pac files and a meta.json
-        #[structopt(parse(from_os_str))]
-        input: PathBuf,
-        #[structopt(parse(from_os_str))]
-        output: PathBuf,
-        /// Specify the program should overwrite the output path if it already exists
-        #[structopt(short, long)]
-        overwrite: bool,
-    },
-    /// Parse a .hip file and save it as a PNG
-    ParseHip {
-
-    },
-    /// Rebuild a PNG file into a .hip
-    RebuildHip {
-
-    }
+#[structopt(name = "unPAC")]
+struct Run {
+    input_files: Vec<PathBuf>,
 }
 
 fn main() {
@@ -64,166 +28,300 @@ fn main() {
 fn run() -> AResult<()> {
     let opt = Run::from_args();
 
-    match opt {
-        Run::ParsePac {
-            input,
-            output,
-            overwrite,
-            old_pac,
-        } => parse_fpac(input, output, overwrite, old_pac),
-        Run::RebuildPac {
-            input,
-            output,
-            overwrite,
-        } => rebuild_fpac(input, output, overwrite),
-        _ => Ok(()),
-    }
-}
+    println!("unPAC - Written by Pangaea");
 
-fn parse_fpac(input: PathBuf, output_path: PathBuf, overwrite: bool, old_pac: bool) -> AResult<()> {
-    if output_path.exists() && !overwrite {
-        return Err(anyhow!(
-            "Output `{}` already exists! You can overwrite with -o",
-            output_path.to_string_lossy()
-        ));
-    }
+    let input_files: Vec<PathBuf> = opt.input_files;
 
-    if !input.is_file() {
-        return Err(anyhow!(
-            "Input `{}`, does not exist!",
-            input.to_string_lossy()
-        ));
-    }
+    input_files.into_par_iter().for_each(|path| {
+        if path.is_file() {
+            let mut file_buf = Vec::new();
+            if let Err(e) = File::open(&path).and_then(|mut f| f.read_to_end(&mut file_buf)) {
+                println!("Error reading file {}: {}", path.display(), e);
+                return;
+            };
 
-    println!("Reading file...");
-    let mut in_file = File::open(&input)?;
+            let res = match path.extension().map(|e| e.to_str()).flatten() {
+                Some("pac") => handle_pac(file_buf, path.with_extension("")),
+                Some("hip") => handle_hip(file_buf, path.with_extension("")),
+                Some("hpl") => handle_hpl(file_buf, path.with_extension("")),
+                _ => Err(anyhow::anyhow!(
+                    "File either has no extension or is unrecognized"
+                )),
+            };
 
-    let mut file_data = Vec::new();
-    in_file.read_to_end(&mut file_data)?;
+            if let Err(e) = res {
+                println!("Error extracting {}:", path.display());
+                println!("{}", e);
+            }
+        } else if path.is_dir() {
+            if let Err(e) = repack_dir(path) {
+                println!("Error: {}", e)
+            };
+        }
+    });
 
-    let pac = match pac::parse(&file_data, old_pac) {
-        Ok(o) => o,
-        Err(nom::Err::Error(e) | nom::Err::Failure(e)) => return Err(e.into()),
-        Err(e) => return Err(e.into()),
-    };
-
-    println!(
-        "Parsed FPAC `{}`\nWriting {} files...",
-        &input.to_string_lossy(),
-        pac.meta.file_entries.len()
-    );
-
-    fs::create_dir_all(&output_path)?;
-
-    pac.files.par_iter().try_for_each(|file| -> AResult<()> {
-        let file_name = &file.name;
-
-        let mut file_path = output_path.clone();
-        file_path.push(&file_name);
-
-        let mut out_file = File::create(file_path)?;
-        out_file.write_all(&file.contents)?;
-
-        Ok(())
-    })?;
-
-    let serialized = json::to_string(&pac.meta);
-    let mut meta_file = File::create(output_path.join(META_FILENAME))?;
-    meta_file.write_all(serialized.as_bytes())?;
+    println!("Done!");
+    pause();
 
     Ok(())
 }
 
-fn rebuild_fpac(input: PathBuf, output: PathBuf, overwrite: bool) -> AResult<()> {
-    if !input.is_dir() {
-        return Err(anyhow!(
-            "Input directory `{}` does not exist!",
-            input.to_string_lossy()
-        ));
-    }
+fn pause() {
+    println!("Press enter to exit...");
+    std::io::stdin().read(&mut []).unwrap();
+}
 
-    if output.exists() && !overwrite {
-        return Err(anyhow!(
-            "Output `{}` already exists! You can overwrite with -o",
-            output.to_string_lossy()
-        ));
-    }
+use serde::{Deserialize, Serialize};
 
-    let mut meta_file = File::open(input.join(META_FILENAME))?;
-    let mut meta_contents = String::new();
+#[derive(Serialize, Deserialize)]
+enum MetaKind {
+    Pac(BBCFPac),
+    Hip(BBCFHip),
+    Hpl(BBCFHpl),
+}
 
-    meta_file.read_to_string(&mut meta_contents)?;
+fn repack_dir(path: PathBuf) -> AResult<()> {
+    let mut meta_reader = BufReader::new(File::open(path.join(META_FILENAME))?);
 
-    let mut meta = json::from_str::<PacMeta>(&meta_contents)?;
-    meta.file_entries.sort_by(|x, y| x.file_id.cmp(&y.file_id));
+    let meta: MetaKind = serde_json::from_reader(&mut meta_reader)?;
 
-    if meta.string_size() == None {
-        return Err(anyhow!("FPAC metadata has no file entries!"));
-    }
+    match meta {
+        MetaKind::Pac(mut pac) => {
+            pac.files = pac
+                .files
+                .into_iter()
+                .filter_map(|mut entry| {
+                    let mut contents = Vec::new();
+                    if File::open(path.join(&entry.name))
+                        .and_then(|mut f| f.read_to_end(&mut contents))
+                        .is_ok()
+                    {
+                        entry.contents = contents;
+                        Some(entry)
+                    } else {
+                        println!("Failed to read {}! Excluding from PAC file", entry.name);
+                        None
+                    }
+                })
+                .collect::<Vec<BBCFPacEntry>>();
 
-    ////// Collect metadata and file data //////
+            let compressed = pac.to_bytes_compressed();
 
-    let meta_data_start = pac::HEADER_SIZE + meta.entry_size().unwrap();
-    let meta_entry_count = meta.file_entries.len();
-    let meta_unknown = meta.unknown;
-    let meta_string_size = meta.string_size().unwrap();
-
-    // Actual data contained in the pac that the entries point to
-    let mut data: Vec<u8> = Vec::new();
-    let mut id_offsets_sizes = HashMap::new();
-
-    for file_entry in &meta.file_entries {
-        let file_path = input.join(&file_entry.file_name);
-
-        let offset = data.len();
-
-        let mut file = File::open(file_path)?;
-        file.read_to_end(&mut data)?;
-
-        let size = data.len() - offset;
-
-        let leftover = utils::needed_to_align(size, 0x10);
-
-        for _ in 0..leftover {
-            data.write_u8(0x0)?;
+            write_repacked_file(&path, compressed, "pac")?;
         }
+        MetaKind::Hpl(mut hpl) => {
+            let palette: Vec<RGBAColor> = image::open(path.join("palette.png"))?
+                .pixels()
+                .map(|(_, _, c)| {
+                    let color = c.0;
+                    RGBAColor {
+                        red: color[0] as u8,
+                        green: color[1] as u8,
+                        blue: color[2] as u8,
+                        alpha: color[3] as u8,
+                    }
+                })
+                .collect();
 
-        // Store calculated file entry offsets and sizes for later when rebuilding the FPAC entries
-        id_offsets_sizes.insert(file_entry.file_id, (offset as u32, size as u32));
-    }
+            hpl.palette = palette;
 
-    let total_size = meta_data_start + data.len();
+            let bytes = hpl.to_bytes();
+            write_repacked_file(&path, bytes, "hpl")?;
+        }
+        MetaKind::Hip(mut hip) => {
+            hip.image = match hip.image {
+                BBCFHipImage::Indexed {
+                    width: _,
+                    height: _,
+                    data: _,
+                } => {
+                    let image = image::open(path.join("image.png"))?;
+                    let palette = image::open(path.join("palette.png"))?;
 
-    ////// Assemble the data back into a single FPAC //////
-    let mut fpac = BufWriter::new(File::create(output)?);
+                    let (width, height) = image.dimensions();
 
-    // Write the headers to the fpac
-    // contents:
-    // 00 magic b"FPAC"
-    // 04 data start offset
-    // 08 total size
-    // 0C files contained total
-    // 10 unknown
-    // 14 string size
-    // 18..20 null padding
-    // 20...N file entries
+                    let palette: Vec<RGBAColor> = palette
+                        .pixels()
+                        .map(|(_, _, c)| {
+                            let color = c.0;
+                            RGBAColor {
+                                red: color[0] as u8,
+                                green: color[1] as u8,
+                                blue: color[2] as u8,
+                                alpha: color[3] as u8,
+                            }
+                        })
+                        .collect();
 
-    fpac.write_all(pac::HEADER_MAGIC)?;
-    fpac.write_u32::<LE>(meta_data_start as u32)?;
-    fpac.write_u32::<LE>(total_size as u32)?;
-    fpac.write_u32::<LE>(meta_entry_count as u32)?;
-    fpac.write_u32::<LE>(meta_unknown)?;
-    fpac.write_u32::<LE>(meta_string_size as u32)?;
-    fpac.write_u64::<LE>(0x00)?;
+                    let image = image.as_luma8().unwrap().to_vec();
+                    BBCFHipImage::Indexed {
+                        width,
+                        height,
+                        data: IndexedImage { palette, image },
+                    }
+                }
+                BBCFHipImage::Raw {
+                    width: _,
+                    height: _,
+                    data: _,
+                } => {
+                    let image = image::open(path.join("image.png"))?;
 
-    for entry in &meta.file_entries {
-        if let Some((offset, size)) = id_offsets_sizes.get(&entry.file_id) {
-            let entry_bytes = entry.to_entry_bytes(*offset, *size, meta_string_size);
-            fpac.write_all(&entry_bytes)?;
+                    let (width, height) = image.dimensions();
+
+                    let image: Vec<RGBAColor> = image
+                        .pixels()
+                        .map(|(_, _, c)| {
+                            let color = c.0;
+                            RGBAColor {
+                                red: color[0] as u8,
+                                green: color[1] as u8,
+                                blue: color[2] as u8,
+                                alpha: color[3] as u8,
+                            }
+                        })
+                        .collect();
+
+                    BBCFHipImage::Raw {
+                        width,
+                        height,
+                        data: image,
+                    }
+                }
+            };
+
+            let bytes = hip.to_bytes();
+            write_repacked_file(&path, bytes, "hip")?;
         }
     }
-
-    fpac.write_all(&data)?;
 
     Ok(())
+}
+
+fn write_repacked_file(
+    path: &PathBuf,
+    bytes: Vec<u8>,
+    extension: &str,
+) -> Result<(), anyhow::Error> {
+    let write_path = path.with_extension(extension);
+    if write_path.exists() {
+        println!(
+            "{} is being overwritten!",
+            write_path.file_name().unwrap().to_string_lossy()
+        )
+    }
+    File::create(write_path)?.write_all(&bytes)?;
+    Ok(())
+}
+
+fn handle_pac(input: Vec<u8>, storage_folder: PathBuf) -> AResult<()> {
+    use arcsys::bbcf::pac::*;
+
+    let mut pac = BBCFPac::parse(&input)?;
+
+    std::fs::create_dir_all(&storage_folder)?;
+
+    for i in &mut pac.files {
+        let mut content_file = File::create(storage_folder.join(&i.name))?;
+        content_file.write_all(&mut i.contents)?;
+    }
+
+    let meta_file = File::create(storage_folder.join(META_FILENAME))?;
+    let mut serializer = serde_json::Serializer::new(meta_file);
+
+    let meta = MetaKind::Pac(pac);
+    meta.serialize(&mut serializer)?;
+
+    Ok(())
+}
+
+fn handle_hpl(input: Vec<u8>, storage_folder: PathBuf) -> AResult<()> {
+    use arcsys::bbcf::hpl::*;
+
+    let mut hpl = BBCFHpl::parse(&input)?;
+
+    let width = hpl.palette.len();
+    let palette = raw_to_rgba(hpl.palette, width as u32, 1);
+
+    // replace moved palette with empty vec
+    hpl.palette = Vec::new();
+
+    let hpl = MetaKind::Hpl(hpl);
+
+    std::fs::create_dir_all(&storage_folder)?;
+
+    palette.save_with_format(storage_folder.join("palette.png"), image::ImageFormat::Png)?;
+
+    let meta_file = File::create(storage_folder.join(META_FILENAME))?;
+    let mut serializer = serde_json::Serializer::new(meta_file);
+
+    hpl.serialize(&mut serializer)?;
+
+    Ok(())
+}
+
+fn handle_hip(input: Vec<u8>, storage_folder: PathBuf) -> AResult<()> {
+    use arcsys::bbcf::hip::*;
+
+    let hip = BBCFHip::parse(&input)?;
+
+    let image = hip_to_image(hip.image.clone());
+
+    std::fs::create_dir_all(&storage_folder)?;
+
+    if let BBCFHipImage::Indexed {
+        width: _,
+        height: _,
+        data,
+    } = &hip.image
+    {
+        let palette = palette_to_image(&data.palette);
+        palette.save_with_format(storage_folder.join("palette.png"), image::ImageFormat::Png)?;
+    }
+
+    image.save_with_format(storage_folder.join("image.png"), image::ImageFormat::Png)?;
+    let meta = MetaKind::Hip(hip);
+
+    let meta_file = File::create(storage_folder.join(META_FILENAME))?;
+
+    let mut serializer = serde_json::Serializer::new(meta_file);
+
+    meta.serialize(&mut serializer)?;
+
+    Ok(())
+}
+
+fn hip_to_image(hip: BBCFHipImage) -> DynamicImage {
+    match hip {
+        BBCFHipImage::Indexed {
+            width,
+            height,
+            data,
+        } => DynamicImage::ImageLuma8(indexed_to_luma(data.image, width, height)),
+        BBCFHipImage::Raw {
+            width,
+            height,
+            data,
+        } => DynamicImage::ImageRgba8(raw_to_rgba(data, width, height)),
+    }
+}
+
+fn raw_to_rgba(raw: Vec<RGBAColor>, width: u32, height: u32) -> RgbaImage {
+    let pixels: Vec<u8> = raw.into_iter().flat_map(|c| c.to_rgba_slice()).collect();
+
+    RgbaImage::from_vec(width, height, pixels).unwrap()
+}
+
+fn indexed_to_luma(pixels: Vec<u8>, width: u32, height: u32) -> GrayImage {
+    GrayImage::from_vec(width, height, pixels).unwrap()
+}
+
+fn palette_to_image(palette: &Vec<RGBAColor>) -> DynamicImage {
+    let width = palette.len();
+    let pixels: Vec<u8> = palette
+        .into_iter()
+        .flat_map(|c| c.to_rgba_slice())
+        .collect();
+
+    DynamicImage::ImageRgba8(RgbaImage::from_vec(width as u32, 1, pixels).unwrap())
 }
