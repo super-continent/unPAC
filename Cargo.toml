@@ -1,6 +1,6 @@
 [package]
 name = "unpac"
-version = "1.0.2"
+version = "1.0.3"
 authors = ["super-continent"]
 edition = "2018"
 
@@ -14,5 +14,4 @@ structopt = "0"
 byteorder = "1"
 rayon = "1.5"
 image = "0.23"
-dialoguer = "0"
 arcsys = { git = "https://github.com/super-continent/arcsys.git" }
