@@ -153,7 +153,7 @@ fn repack_dir(path: PathBuf) -> AResult<()> {
                         })
                         .collect();
 
-                    let image = image.as_luma8().unwrap().to_vec();
+                    let image = image.to_luma8().to_vec();
                     BBCFHipImage::Indexed {
                         width,
                         height,
