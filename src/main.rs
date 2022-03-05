@@ -188,6 +188,20 @@ fn repack_dir(path: PathBuf) -> AResult<()> {
                         data: image,
                     }
                 }
+                BBCFHipImage::Luma {
+                    width: _,
+                    height: _,
+                    data: _,
+                } => {
+                    let image = image::open(path.join("image.png"))?;
+                    let (width, height) = image.dimensions();
+                    
+                    BBCFHipImage::Luma {
+                        width,
+                        height,
+                        data: image.to_luma16().to_vec(),
+                    }
+                }
             };
 
             let bytes = hip.to_bytes();
@@ -292,6 +306,8 @@ fn handle_hip(input: Vec<u8>, storage_folder: PathBuf) -> AResult<()> {
 }
 
 fn hip_to_image(hip: BBCFHipImage) -> DynamicImage {
+    type Gray16Image = image::ImageBuffer<image::Luma<u16>, Vec<u16>>;
+
     match hip {
         BBCFHipImage::Indexed {
             width,
@@ -303,6 +319,11 @@ fn hip_to_image(hip: BBCFHipImage) -> DynamicImage {
             height,
             data,
         } => DynamicImage::ImageRgba8(raw_to_rgba(data, width, height)),
+        BBCFHipImage::Luma {
+            width,
+            height,
+            data,
+        } => DynamicImage::ImageLuma16(Gray16Image::from_raw(width, height, data).unwrap()),
     }
 }
 
